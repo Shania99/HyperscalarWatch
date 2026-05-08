@@ -1,4 +1,4 @@
-# Let's build a datacenter watch system using a compact Vision-Language Modell and Sentinel-2 satellite images
+# Let's build a datacenter watch system using a compact Vision-Language Modeland Sentinel-2 satellite images
 
 In this example you will learn how to build a basic datacenter watch system using:
 
