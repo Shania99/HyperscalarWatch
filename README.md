@@ -1,4 +1,4 @@
-# HyperScalarWatch
+# HyperScalerWatch
 
-Detect Data Centers and HyperScalars from satellite imagery
+Detect Data Centers and HyperScalers from satellite imagery
 
