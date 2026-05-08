@@ -231,9 +231,7 @@ def _annotate_gemini(model: str, user_content: list[dict[str, object]]) -> str:
                 system_instruction=SYSTEM_PROMPT,
                 response_mime_type="application/json",
                 response_json_schema=GEMINI_RESPONSE_SCHEMA,
-                temperature=0.0,
                 max_output_tokens=GEMINI_MAX_OUTPUT_TOKENS,
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
     except Exception as exc:

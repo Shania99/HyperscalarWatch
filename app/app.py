@@ -239,6 +239,8 @@ def _globe_figure(
     selected_site_id: int | None,
     satellite_now: dict[str, Any] | None,
     live_satellite: dict[str, Any] | None,
+    *,
+    fixed_view: bool = False,
 ) -> go.Figure:
     lons = [float(site["lon"]) for site in sites]
     lats = [float(site["lat"]) for site in sites]
@@ -264,12 +266,15 @@ def _globe_figure(
         for site in sites
     ]
 
-    center_lon = float(sites[0]["lon"]) if sites else -96.0
-    center_lat = float(sites[0]["lat"]) if sites else 37.0
-    selected = next((site for site in sites if site["site_id"] == selected_site_id), None)
-    if selected is not None:
-        center_lon = float(selected["lon"])
-        center_lat = float(selected["lat"])
+    center_lon = -96.0
+    center_lat = 37.0
+    if not fixed_view:
+        center_lon = float(sites[0]["lon"]) if sites else center_lon
+        center_lat = float(sites[0]["lat"]) if sites else center_lat
+        selected = next((site for site in sites if site["site_id"] == selected_site_id), None)
+        if selected is not None:
+            center_lon = float(selected["lon"])
+            center_lat = float(selected["lat"])
 
     fig = go.Figure()
     fig.add_trace(
@@ -646,6 +651,7 @@ def main() -> None:
         refresh_interval = st.number_input(
             "Refresh every (seconds)", min_value=3, max_value=300, value=10, step=1
         )
+        fixed_globe = st.toggle("Fixed globe", value=False)
         if st.button("Refresh now"):
             st.rerun()
 
@@ -757,7 +763,13 @@ def main() -> None:
     with left:
         st.markdown('<div class="panel"><div class="section-kicker">GLOBAL VIEW</div><div class="section-title">Tracked Sites</div></div>', unsafe_allow_html=True)
         st.plotly_chart(
-            _globe_figure(filtered_sites, int(selected_site["site_id"]), satellite_now, live_satellite),
+            _globe_figure(
+                filtered_sites,
+                int(selected_site["site_id"]),
+                satellite_now,
+                live_satellite,
+                fixed_view=fixed_globe,
+            ),
             use_container_width=True,
         )
     with right:

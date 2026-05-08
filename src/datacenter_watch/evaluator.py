@@ -8,6 +8,7 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -33,8 +34,11 @@ EVAL_FIELDS: list[str] = [
     "tile_context",
 ]
 
-DETECTION_IOU_THRESHOLD = 0.5
 _RESPONSE_SCHEMA: dict[str, object] = RESPONSE_SCHEMA
+DETECTION_COMPARE_FIELDS = [
+    "site_class",
+    "construction_stage",
+]
 
 
 def _bbox_iou(a: object, b: object) -> float:
@@ -68,12 +72,29 @@ def _bbox_iou(a: object, b: object) -> float:
 def _match_detections(
     prediction: object,
     ground_truth: object,
+    *,
+    compare_fields: list[str],
+    require_bbox: bool,
 ) -> tuple[bool, list[tuple[int, int, float]]]:
     if not isinstance(prediction, list) or not isinstance(ground_truth, list):
         return False, []
 
     prediction = [item for item in prediction if is_positive_detection(item)]
     ground_truth = [item for item in ground_truth if is_positive_detection(item)]
+
+    def signature(detection: object) -> tuple[object, ...] | None:
+        if not isinstance(detection, dict):
+            return None
+        return tuple(detection.get(field) for field in compare_fields)
+
+    if not require_bbox:
+        pred_counts = Counter(
+            sig for sig in (signature(item) for item in prediction) if sig is not None
+        )
+        gt_counts = Counter(
+            sig for sig in (signature(item) for item in ground_truth) if sig is not None
+        )
+        return pred_counts == gt_counts, []
 
     matched_pairs: list[tuple[int, int, float]] = []
     used_pred: set[int] = set()
@@ -92,11 +113,11 @@ def _match_detections(
             if iou > best_iou:
                 best_iou = iou
                 best_pred_idx = pred_idx
-        if best_pred_idx is None or best_iou < DETECTION_IOU_THRESHOLD:
+        if best_pred_idx is None or best_iou < 0.5:
             return False, []
         pred_det = prediction[best_pred_idx]
         assert isinstance(pred_det, dict)
-        for field in DETECTION_EVAL_FIELDS:
+        for field in compare_fields:
             if pred_det.get(field) != gt_det.get(field):
                 return False, []
         used_pred.add(best_pred_idx)
@@ -370,6 +391,9 @@ def evaluate_sample(
     mapbox_bytes: bytes | None,
     ground_truth: dict[str, object],
     predict: PredictFn,
+    *,
+    detection_compare_fields: list[str] | None = None,
+    require_bbox: bool = True,
 ) -> SampleResult:
     t0 = perf_counter()
     try:
@@ -396,6 +420,8 @@ def evaluate_sample(
     detections_match, _matched_pairs = _match_detections(
         prediction.get("detections"),
         ground_truth.get("detections"),
+        compare_fields=detection_compare_fields or DETECTION_EVAL_FIELDS,
+        require_bbox=require_bbox,
     )
     tile_context_match = _match_tile_context(
         prediction.get("tile_context"),
@@ -461,6 +487,8 @@ def render_report(
     backend: str,
     model: str,
     eval_run_id: str,
+    *,
+    detection_eval_label: str,
 ) -> str:
     lines: list[str] = []
 
@@ -469,6 +497,7 @@ def render_report(
     lines.append(f"**Dataset:** {dataset}  ")
     lines.append(f"**Backend:** {backend}  ")
     lines.append(f"**Model:** {model}")
+    lines.append(f"**Detection Match:** {detection_eval_label}")
     lines.append("")
 
     # Accuracy summary first
@@ -529,6 +558,9 @@ def save_results(
     model: str,
     split: str,
     eval_run_id: str,
+    *,
+    detection_eval_fields: list[str],
+    require_bbox: bool,
 ) -> None:
     """Write results.json and meta.json into eval_dir."""
     meta = {
@@ -537,6 +569,8 @@ def save_results(
         "backend": backend,
         "model": model,
         "split": split,
+        "detection_eval_fields": detection_eval_fields,
+        "detection_require_bbox": require_bbox,
     }
     (eval_dir / "meta.json").write_text(
         json.dumps(meta, indent=2), encoding="utf-8"

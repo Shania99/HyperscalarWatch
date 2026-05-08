@@ -53,11 +53,18 @@ function StageTimeline({ history }) {
   if (!history || history.length < 2) return <div style={{ fontSize: 10, color: "#607898", padding: 8 }}>Insufficient stage data</div>;
   const w = 300, h = 100, p = { t: 10, r: 10, b: 20, l: 45 };
   const iw = w - p.l - p.r, ih = h - p.t - p.b;
-  const times = history.map(d => new Date(d.observed_at).getTime());
-  const ranks = history.map(d => STAGE_RANK[d.construction_stage] ?? 0);
+  const sorted = [...history].sort((a, b) => new Date(a.observed_at) - new Date(b.observed_at));
+  const times = sorted.map(d => new Date(d.observed_at).getTime());
+  // once operational, always operational
+  let peak = 0;
+  const ranks = sorted.map(d => {
+    const r = STAGE_RANK[d.construction_stage] ?? 0;
+    peak = Math.max(peak, r);
+    return peak;
+  });
   const tMin = Math.min(...times), tMax = Math.max(...times), rMax = 2;
   const tRange = tMax - tMin || 1;
-  const pts = history.map((_, i) =>
+  const pts = sorted.map((_, i) =>
     `${p.l + (((times[i] - tMin) / tRange) * iw)},${p.t + ih - ((ranks[i] / rMax) * ih)}`
   ).join(" ");
   return (
@@ -66,7 +73,7 @@ function StageTimeline({ history }) {
       <line x1={p.l} x2={w - p.r} y1={p.t + ih} y2={p.t + ih} stroke="#2a3648" strokeDasharray="3,3" />
       <polygon points={`${p.l},${p.t + ih} ${pts} ${p.l + iw},${p.t + ih}`} fill="url(#sg)" />
       <polyline points={pts} fill="none" stroke="#ff5577" strokeWidth="1.5" />
-      {history.map((d, i) => (
+      {sorted.map((d, i) => (
         <circle key={i} cx={p.l + ((times[i] - tMin) / tRange) * iw} cy={p.t + ih - (ranks[i] / rMax) * ih} r="3" fill="#ffaa00" />
       ))}
       <text x={2} y={p.t + 7} fill="#7088a0" fontSize="6" fontFamily="monospace">operational</text>
@@ -97,7 +104,7 @@ function SitePanel({ site, detail, onClose, enrichment, enrichLoading, onEnrich 
 
       <div style={labelStyle}>SENTINEL-2 COMPOSITES</div>
       <div style={{ display: "flex", gap: 5, marginBottom: 14 }}>
-        {["rgb", "swir", "index", "mapbox"].map(type => {
+        {["rgb", "swir", "index"].map(type => {
           const url = imageUrl(site[`${type}_path`]);
           return (
             <div key={type} style={{ flex: 1 }}>
@@ -144,7 +151,7 @@ function SitePanel({ site, detail, onClose, enrichment, enrichLoading, onEnrich 
                   <span style={{ fontSize: 8, color: SEVERITY_COLORS[a.severity] || "#7fa7d8", letterSpacing: 1, fontWeight: 600 }}>{a.severity?.toUpperCase()}</span>
                   <span style={{ fontSize: 8, color: "#607898" }}>{a.alert_type}</span>
                 </div>
-                <div style={{ fontSize: 10, color: "#90a8c4", lineHeight: 1.5 }}>{a.summary}</div>
+                <AlertSummary summary={a.summary} />
                 <div style={{ fontSize: 7, color: "#607898", marginTop: 2 }}>{fmtTs(a.created_at)}</div>
               </div>
             ))}
@@ -152,20 +159,12 @@ function SitePanel({ site, detail, onClose, enrichment, enrichLoading, onEnrich 
         </>
       )}
 
-      {detail?.alerts?.[0]?.summary && (
-        <>
-          <div style={labelStyle}>CHANGE NARRATIVE</div>
-          <div style={{ ...cardStyle, fontSize: 10, color: "#90a8c4", lineHeight: 1.65, fontStyle: "italic", marginBottom: 14 }}>
-            {detail.alerts[0].summary}
-          </div>
-        </>
-      )}
 
       <div style={labelStyle}>GROUND ENRICHMENT</div>
       <div style={{ fontSize: 8, color: "#607898", marginBottom: 8 }}>Gemini 2.5 Flash + Google Search &rarr; site ID, demographics, water, grid, health, community</div>
       {enrichment ? (
-        <div style={{ ...cardStyle, fontSize: 10, color: "#90a8c4", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-          {enrichment}
+        <div style={{ ...cardStyle }}>
+          <MiniMarkdown text={enrichment} />
         </div>
       ) : (
         <button
@@ -186,6 +185,136 @@ function SitePanel({ site, detail, onClose, enrichment, enrichLoading, onEnrich 
   );
 }
 
+// ── MiniMarkdown ──────────────────────────────────────────────────────────────
+
+function inlineBold(text) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((p, i) =>
+    p.startsWith("**") && p.endsWith("**")
+      ? <strong key={i} style={{ color: "#e0e8f4", fontWeight: 700 }}>{p.slice(2, -2)}</strong>
+      : p
+  );
+}
+
+function MiniMarkdown({ text }) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  const nodes = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // blank line
+    if (!line.trim()) { i++; continue; }
+
+    // heading
+    if (/^#{1,3} /.test(line)) {
+      nodes.push(
+        <div key={i} style={{ fontSize: 9, color: "#8098b8", letterSpacing: 2, textTransform: "uppercase", marginTop: 10, marginBottom: 4, fontWeight: 700 }}>
+          {line.replace(/^#+\s*/, "")}
+        </div>
+      );
+      i++; continue;
+    }
+
+    // table — collect all consecutive pipe lines
+    if (line.trim().startsWith("|")) {
+      const tableLines = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      const rows = tableLines
+        .filter(l => !/^\|[-| :]+\|$/.test(l.trim()))
+        .map(l => l.replace(/^\||\|$/g, "").split("|").map(c => c.trim()));
+      nodes.push(
+        <table key={`tbl-${i}`} style={{ width: "100%", borderCollapse: "collapse", marginTop: 6, marginBottom: 6 }}>
+          <tbody>
+            {rows.map((cols, ri) => (
+              <tr key={ri} style={{ borderBottom: "1px solid #182438" }}>
+                {cols.map((cell, ci) => (
+                  <td key={ci} style={{ fontSize: 9, padding: "3px 4px", color: ci === 0 ? "#7090b0" : "#d0d8e8", verticalAlign: "top" }}>
+                    {inlineBold(cell)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
+      continue;
+    }
+
+    // bullet
+    if (/^[-*] /.test(line.trim())) {
+      nodes.push(
+        <div key={i} style={{ fontSize: 10, color: "#90a8c4", lineHeight: 1.6, paddingLeft: 10, marginBottom: 2, display: "flex", gap: 6 }}>
+          <span style={{ color: "#4a6080", flexShrink: 0 }}>·</span>
+          <span>{inlineBold(line.replace(/^[-*] /, ""))}</span>
+        </div>
+      );
+      i++; continue;
+    }
+
+    // paragraph line
+    nodes.push(
+      <div key={i} style={{ fontSize: 10, color: "#90a8c4", lineHeight: 1.7, marginBottom: 4 }}>
+        {inlineBold(line)}
+      </div>
+    );
+    i++;
+  }
+
+  return <>{nodes}</>;
+}
+
+// ── AlertSummary ───────────────────────────────────────────────────────────────
+
+function AlertSummary({ summary }) {
+  let parsed = null;
+  try {
+    const jsonStart = summary?.indexOf("{");
+    if (jsonStart !== -1) parsed = JSON.parse(summary.slice(jsonStart));
+  } catch {}
+
+  if (parsed && typeof parsed === "object") {
+    const changes = (parsed.detections || []).flatMap(d => {
+      if (d.type !== "changed") return [];
+      return (d.fields || []).map(f => ({ field: f, prev: d.previous?.[f], curr: d.current?.[f] }));
+    });
+    const ctxFlags = parsed.tile_context_fields || [];
+
+    if (changes.length === 0 && ctxFlags.length === 0) {
+      return <div style={{ fontSize: 10, color: "#607898" }}>No changes recorded.</div>;
+    }
+
+    return (
+      <div>
+        {changes.slice(0, 4).map(({ field, prev, curr }) => (
+          <div key={field} style={{ fontSize: 9, lineHeight: 1.5, display: "flex", gap: 4, flexWrap: "wrap" }}>
+            <span style={{ color: "#607898" }}>{field.replace(/_/g, " ")}:</span>
+            <span style={{ color: "#ff5577", textDecoration: "line-through" }}>{String(prev)}</span>
+            <span style={{ color: "#8098b8" }}>→</span>
+            <span style={{ color: "#00e87a" }}>{String(curr)}</span>
+          </div>
+        ))}
+        {ctxFlags.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+            {ctxFlags.map(f => (
+              <span key={f} style={{ fontSize: 7, padding: "2px 5px", borderRadius: 3, background: "#1a2a3a", color: "#7090b0", border: "1px solid #1e3050", letterSpacing: 1 }}>
+                {f.replace(/_/g, " ").toUpperCase()}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return <div style={{ fontSize: 10, color: "#d0dae8", lineHeight: 1.4 }}>{summary?.slice(0, 120)}</div>;
+}
+
 // ── App ────────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -196,9 +325,13 @@ export default function App() {
   const [data, setData] = useState({ sites: [], alerts: [], satellite: null, stats: {} });
   const [enrichments, setEnrichments] = useState({});
   const [enrichLoading, setEnrichLoading] = useState(false);
+  const [newestAlertId, setNewestAlertId] = useState(null);
+  const newestAlertIdRef = useRef(null);
   const dataRef = useRef(data);
   const mouseRef = useRef({ isDown: false, lastX: 0, lastY: 0 });
   const rotRef = useRef({ x: 0.35, y: -1.85 });
+  const autoRotateRef = useRef(true);
+  const [autoRotate, setAutoRotate] = useState(true);
 
   // ── polling ──
   useEffect(() => {
@@ -208,6 +341,11 @@ export default function App() {
         const json = await res.json();
         setData(json);
         dataRef.current = json;
+        const newest = json.alerts?.[0]?.alert_id ?? null;
+        if (newest !== null && newest !== newestAlertIdRef.current) {
+          newestAlertIdRef.current = newest;
+          setNewestAlertId(newest);
+        }
       } catch (e) { console.warn("poll failed", e); }
     };
     poll();
@@ -285,7 +423,7 @@ export default function App() {
     const animate = () => {
       fid = requestAnimationFrame(animate);
       const t = clk.getElapsedTime();
-      if (!mouseRef.current.isDown) rotRef.current.y -= 0.0006;
+      if (!mouseRef.current.isDown && autoRotateRef.current) rotRef.current.y -= 0.0006;
       globe.rotation.x = rotRef.current.x;
       globe.rotation.y = rotRef.current.y;
       markers.children.forEach((c, i) => { if (c.userData.pulse) c.scale.setScalar(1 + 0.3 * Math.sin(t * 2.5 + i * 0.6)); });
@@ -405,17 +543,10 @@ export default function App() {
 
       {/* stats */}
       <div style={{ position: "absolute", top: 20, right: selectedSite ? 385 : 22, zIndex: 10, display: "flex", gap: 10, transition: "right 0.3s" }}>
-        {[
-          { l: "ACTIVE SITES", v: stats.active_sites ?? 0, c: "#00e87a" },
-          { l: "HIGH ALERTS", v: stats.high_alerts ?? 0, c: "#ff5577" },
-          { l: "RAPID BUILDS", v: stats.rapid_builds ?? 0, c: "#ffaa00" },
-          { l: "ENRICHMENT", v: stats.enrichment_queue ?? 0, c: "#dd66ee" },
-        ].map(({ l, v, c }) => (
-          <div key={l} style={{ background: panelBg, border: panelBorder, borderRadius: 5, padding: "6px 12px", backdropFilter: "blur(12px)" }}>
-            <div style={{ fontSize: 7, color: labelColor, letterSpacing: 2 }}>{l}</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: c }}>{v}</div>
-          </div>
-        ))}
+        <div style={{ background: panelBg, border: panelBorder, borderRadius: 5, padding: "6px 12px", backdropFilter: "blur(12px)" }}>
+          <div style={{ fontSize: 7, color: labelColor, letterSpacing: 2 }}>ALERTS</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#ff5577" }}>{stats.total_alerts ?? 0}</div>
+        </div>
       </div>
 
       {/* satellite info */}
@@ -431,18 +562,23 @@ export default function App() {
       <div style={{ position: "absolute", bottom: 14, left: 22, width: 340, maxHeight: "45vh", overflowY: "auto", zIndex: 10, background: panelBg, border: panelBorder, borderRadius: 6, padding: "10px 14px", backdropFilter: "blur(12px)" }}>
         <div style={{ fontSize: 7, color: labelColor, letterSpacing: 3, marginBottom: 8 }}>ALERT INBOX</div>
         {data.alerts.length === 0 && <div style={{ fontSize: 10, color: "#607898" }}>No alerts yet.</div>}
-        {data.alerts.slice(0, 15).map(alert => (
-          <div key={alert.alert_id}
-            onClick={() => { const s = data.sites.find(s => s.site_id === alert.site_id); if (s) setSelectedSite(s); }}
-            style={{ borderLeft: `3px solid ${SEVERITY_COLORS[alert.severity] || "#7fa7d8"}`, background: "#10182a", borderRadius: 6, padding: "8px 10px", marginBottom: 6, cursor: "pointer" }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 3 }}>
-              <span style={{ fontSize: 8, color: SEVERITY_COLORS[alert.severity], letterSpacing: 1, fontWeight: 600 }}>{alert.severity?.toUpperCase()}</span>
-              <span style={{ fontSize: 8, color: "#607898" }}>{alert.alert_type}</span>
+        {data.alerts.slice(0, 15).map(alert => {
+          const isNewest = alert.alert_id === newestAlertId;
+          const accentColor = isNewest ? "#4cc9f0" : (SEVERITY_COLORS[alert.severity] || "#7fa7d8");
+          return (
+            <div key={alert.alert_id}
+              onClick={() => { const s = data.sites.find(s => s.site_id === alert.site_id); if (s) setSelectedSite(s); }}
+              style={{ borderLeft: `3px solid ${accentColor}`, background: isNewest ? "#0a1e30" : "#10182a", borderRadius: 6, padding: "8px 10px", marginBottom: 6, cursor: "pointer", transition: "background 0.4s, border-color 0.4s" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 3 }}>
+                <span style={{ fontSize: 8, color: isNewest ? "#4cc9f0" : SEVERITY_COLORS[alert.severity], letterSpacing: 1, fontWeight: 600 }}>{alert.severity?.toUpperCase()}</span>
+                <span style={{ fontSize: 8, color: "#607898" }}>{alert.alert_type}</span>
+                {isNewest && <span style={{ fontSize: 7, color: "#4cc9f0", letterSpacing: 2, marginLeft: "auto" }}>NEW</span>}
+              </div>
+              <AlertSummary summary={alert.summary} />
+              <div style={{ fontSize: 7, color: "#607898", marginTop: 3 }}>{fmtTs(alert.created_at)}</div>
             </div>
-            <div style={{ fontSize: 10, color: "#d0dae8", lineHeight: 1.4 }}>{alert.summary?.slice(0, 120)}</div>
-            <div style={{ fontSize: 7, color: "#607898", marginTop: 3 }}>{fmtTs(alert.created_at)}</div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* legend */}
@@ -464,6 +600,17 @@ export default function App() {
       <div style={{ position: "absolute", top: 20, right: selectedSite ? 385 : 22, zIndex: 5, fontSize: 8, color: labelColor, textAlign: "right", transition: "right 0.3s", marginTop: 70 }}>
         <div>DRAG to rotate &middot; SCROLL to zoom</div>
         <div>CLICK marker for analysis</div>
+        <button
+          onClick={() => { autoRotateRef.current = !autoRotateRef.current; setAutoRotate(autoRotateRef.current); }}
+          style={{
+            marginTop: 6, padding: "4px 10px", border: `1px solid ${autoRotate ? "#1e3050" : "#55aadd"}`,
+            borderRadius: 4, background: autoRotate ? "#0c1628e8" : "#0e2040",
+            color: autoRotate ? labelColor : "#55aadd", fontSize: 8, letterSpacing: 2,
+            textTransform: "uppercase", cursor: "pointer", fontFamily: font,
+          }}
+        >
+          {autoRotate ? "STOP ROTATION" : "START ROTATION"}
+        </button>
       </div>
 
       {selectedSite && (

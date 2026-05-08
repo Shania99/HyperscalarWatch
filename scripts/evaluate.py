@@ -22,7 +22,7 @@ from typing import TypeAlias
 from huggingface_hub import snapshot_download
 
 from datacenter_watch.annotator import annotate_raw
-from datacenter_watch.compact_schema import migrate_annotation
+from datacenter_watch.compact_schema import DETECTION_EVAL_FIELDS, migrate_annotation
 from datacenter_watch.evaluator import (
     EVAL_FIELDS,
     EvalSummary,
@@ -206,6 +206,15 @@ def main() -> None:
         metavar="DIR",
         help="Directory to write raw responses into (default: evals/<run_id>/raw).",
     )
+    parser.add_argument(
+        "--detection-eval-mode",
+        choices=["strict", "class_stage_only"],
+        default="strict",
+        help=(
+            "Detection scoring mode. 'strict' uses bbox + shared compact detection fields. "
+            "'class_stage_only' compares only site_class and construction_stage."
+        ),
+    )
     args = parser.parse_args()
 
     if not args.dataset and not args.hf_dataset:
@@ -253,6 +262,15 @@ def main() -> None:
     if args.dump_raw_location:
         raw_dump_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.detection_eval_mode == "class_stage_only":
+        detection_compare_fields = ["site_class", "construction_stage"]
+        require_bbox = False
+        detection_eval_label = "site_class + construction_stage only"
+    else:
+        detection_compare_fields = list(DETECTION_EVAL_FIELDS)
+        require_bbox = True
+        detection_eval_label = "bbox + " + " + ".join(detection_compare_fields)
+
     # Start llama-server if needed.
     server_process = None
     llama_port = args.port
@@ -293,7 +311,18 @@ def main() -> None:
     try:
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
             futures = {
-                pool.submit(evaluate_sample, sid, rgb, swir, index, mapbox, gt, predict): sid
+                pool.submit(
+                    evaluate_sample,
+                    sid,
+                    rgb,
+                    swir,
+                    index,
+                    mapbox,
+                    gt,
+                    predict,
+                    detection_compare_fields=detection_compare_fields,
+                    require_bbox=require_bbox,
+                ): sid
                 for sid, rgb, swir, index, mapbox, gt in samples
             }
             for future in as_completed(futures):
@@ -321,7 +350,14 @@ def main() -> None:
 
     summary = EvalSummary(results=results)
     mname = model_name(args.backend, args.model, args.quant)
-    report = render_report(summary, f"{dataset_label}/{args.split}", args.backend, mname, eval_run_id)
+    report = render_report(
+        summary,
+        f"{dataset_label}/{args.split}",
+        args.backend,
+        mname,
+        eval_run_id,
+        detection_eval_label=detection_eval_label,
+    )
 
     eval_dir = EVALS_DIR / eval_run_id
     eval_dir.mkdir(parents=True, exist_ok=True)
@@ -334,6 +370,8 @@ def main() -> None:
         model=mname,
         split=args.split,
         eval_run_id=eval_run_id,
+        detection_eval_fields=detection_compare_fields,
+        require_bbox=require_bbox,
     )
 
     print()

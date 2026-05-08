@@ -16,7 +16,7 @@ from datacenter_watch.downlink import (
     has_meaningful_change,
 )
 
-MATCH_RADIUS_METERS = 500.0
+MATCH_RADIUS_METERS = 3000.0
 CONSTRUCTION_STAGE_ORDER = {
     "undisturbed": 0,
     "active_construction": 1,
@@ -160,6 +160,18 @@ def _site_row_to_payload(row: sqlite3.Row) -> dict[str, object]:
         "detections": [json.loads(str(row["current_payload_json"]))],
         "tile_context": json.loads(str(row["current_tile_context_json"])),
     }
+
+
+def _find_site_by_location_id(conn: sqlite3.Connection, location_id: str) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT s.* FROM sites s
+        JOIN observations o ON o.site_id = s.id
+        WHERE substr(o.tile_id, 1, instr(o.tile_id, '/') - 1) = ?
+        ORDER BY s.id LIMIT 1
+        """,
+        (location_id,),
+    ).fetchone()
 
 
 def _find_site(conn: sqlite3.Connection, lon: float, lat: float) -> sqlite3.Row | None:
@@ -365,9 +377,29 @@ def _insert_stage_history(
     construction_stage: str,
     observed_at: str,
 ) -> None:
+    new_rank = CONSTRUCTION_STAGE_ORDER.get(construction_stage, -1)
+    if new_rank < 0:
+        return  # ignore unknown/None stages
+
+    # One entry per (site, observed_at): keep highest rank seen for that timestamp
+    existing = conn.execute(
+        "SELECT id, construction_stage FROM stage_history WHERE site_id = ? AND observed_at = ? LIMIT 1",
+        (site_id, observed_at),
+    ).fetchone()
+    if existing is not None:
+        existing_rank = CONSTRUCTION_STAGE_ORDER.get(str(existing["construction_stage"]), -1)
+        if new_rank > existing_rank:
+            conn.execute(
+                "UPDATE stage_history SET construction_stage = ?, observation_id = ? WHERE id = ?",
+                (construction_stage, observation_id, existing["id"]),
+            )
+        return
+
+    # Also skip if stage is identical to the most recent entry (no change)
     latest = _latest_stage_entry(conn, site_id)
     if latest is not None and str(latest["construction_stage"]) == construction_stage:
         return
+
     conn.execute(
         """
         INSERT INTO stage_history (site_id, observation_id, construction_stage, observed_at)
@@ -375,6 +407,26 @@ def _insert_stage_history(
         """,
         (site_id, observation_id, construction_stage, observed_at),
     )
+
+
+def _alert_is_duplicate(
+    conn: sqlite3.Connection,
+    *,
+    site_id: int,
+    alert_type: str,
+    summary: str,
+    window_hours: int = 24,
+) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1 FROM alerts
+        WHERE site_id = ? AND alert_type = ? AND summary = ?
+          AND created_at >= datetime('now', ?)
+        LIMIT 1
+        """,
+        (site_id, alert_type, summary, f"-{window_hours} hours"),
+    ).fetchone()
+    return row is not None
 
 
 def _insert_alert(
@@ -433,6 +485,8 @@ def _create_alert(
     alert_type: str,
     summary: str,
 ) -> None:
+    if _alert_is_duplicate(conn, site_id=site_id, alert_type=alert_type, summary=summary):
+        return
     alert_id = _insert_alert(
         conn,
         site_id=site_id,
@@ -489,7 +543,7 @@ def _rapid_construction_alert(
     if previous_rank is None or current_rank is None or current_rank <= previous_rank:
         return None
     days = (_parse_timestamp(current_observed_at) - _parse_timestamp(previous_observed_at)).days
-    if current_stage == "operational" and days <= 60:
+    if current_stage == "operational" and 0 < days <= 60:
         return (
             "high",
             "rapid_construction",
@@ -512,7 +566,11 @@ def _process_detection(
         float(packet["size_km"]),
         detection.get("bbox"),
     )
-    site_row = _find_site(conn, lon, lat)
+    tile_id = str(packet.get("tile_id", ""))
+    location_id = tile_id.split("/")[0] if "/" in tile_id else tile_id
+    site_row = _find_site_by_location_id(conn, location_id) if location_id else None
+    if site_row is None:
+        site_row = _find_site(conn, lon, lat)
     observed_at = str(packet["observed_at"])
     summary = {"new_sites": 0, "updated_sites": 0, "alerts": 0}
     site_payload = {"detections": [detection], "tile_context": tile_context}
@@ -548,26 +606,27 @@ def _process_detection(
             construction_stage=str(detection.get("construction_stage", "")),
             observed_at=observed_at,
         )
-        _create_alert(
-            conn,
-            site_id=site_id,
-            observation_id=observation_id,
-            severity="medium",
-            alert_type="new_site",
-            summary=f"New site detected: {detection.get('site_class')}.",
-        )
         summary["new_sites"] += 1
-        summary["alerts"] += 1
-        for severity, alert_type, alert_summary in _impact_alerts(detection, tile_context):
+        if detection.get("site_class") == "data_center":
             _create_alert(
                 conn,
                 site_id=site_id,
                 observation_id=observation_id,
-                severity=severity,
-                alert_type=alert_type,
-                summary=alert_summary,
+                severity="medium",
+                alert_type="new_site",
+                summary=f"New data center site detected.",
             )
             summary["alerts"] += 1
+            for severity, alert_type, alert_summary in _impact_alerts(detection, tile_context):
+                _create_alert(
+                    conn,
+                    site_id=site_id,
+                    observation_id=observation_id,
+                    severity=severity,
+                    alert_type=alert_type,
+                    summary=alert_summary,
+                )
+                summary["alerts"] += 1
         return summary
 
     site_id = int(site_row["id"])
@@ -611,45 +670,46 @@ def _process_detection(
         observed_at=observed_at,
     )
 
-    if has_meaningful_change(diff):
-        _create_alert(
-            conn,
-            site_id=site_id,
-            observation_id=observation_id,
-            severity="medium",
-            alert_type="state_change",
-            summary=f"Site state changed: {json.dumps(diff, sort_keys=True)}",
-        )
-        summary["alerts"] += 1
+    if detection.get("site_class") == "data_center":
+        if has_meaningful_change(diff):
+            _create_alert(
+                conn,
+                site_id=site_id,
+                observation_id=observation_id,
+                severity="medium",
+                alert_type="state_change",
+                summary=f"Site state changed: {json.dumps(diff, sort_keys=True)}",
+            )
+            summary["alerts"] += 1
 
-    rapid = _rapid_construction_alert(
-        previous_stage,
-        previous_seen,
-        str(detection.get("construction_stage", "")),
-        observed_at,
-    )
-    if rapid is not None:
-        severity, alert_type, alert_summary = rapid
-        _create_alert(
-            conn,
-            site_id=site_id,
-            observation_id=observation_id,
-            severity=severity,
-            alert_type=alert_type,
-            summary=alert_summary,
+        rapid = _rapid_construction_alert(
+            previous_stage,
+            previous_seen,
+            str(detection.get("construction_stage", "")),
+            observed_at,
         )
-        summary["alerts"] += 1
+        if rapid is not None:
+            severity, alert_type, alert_summary = rapid
+            _create_alert(
+                conn,
+                site_id=site_id,
+                observation_id=observation_id,
+                severity=severity,
+                alert_type=alert_type,
+                summary=alert_summary,
+            )
+            summary["alerts"] += 1
 
-    for severity, alert_type, alert_summary in _impact_alerts(detection, tile_context):
-        _create_alert(
-            conn,
-            site_id=site_id,
-            observation_id=observation_id,
-            severity=severity,
-            alert_type=alert_type,
-            summary=alert_summary,
-        )
-        summary["alerts"] += 1
+        for severity, alert_type, alert_summary in _impact_alerts(detection, tile_context):
+            _create_alert(
+                conn,
+                site_id=site_id,
+                observation_id=observation_id,
+                severity=severity,
+                alert_type=alert_type,
+                summary=alert_summary,
+            )
+            summary["alerts"] += 1
     return summary
 
 
@@ -667,7 +727,11 @@ def _process_removed_detection(
         float(packet["size_km"]),
         detection.get("bbox"),
     )
-    site_row = _find_site(conn, lon, lat)
+    tile_id = str(packet.get("tile_id", ""))
+    location_id = tile_id.split("/")[0] if "/" in tile_id else tile_id
+    site_row = _find_site_by_location_id(conn, location_id) if location_id else None
+    if site_row is None:
+        site_row = _find_site(conn, lon, lat)
     if site_row is None:
         return {"new_sites": 0, "updated_sites": 0, "alerts": 0}
 

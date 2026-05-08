@@ -144,8 +144,6 @@ def field_level_diff(
         current_detection = current_detections[current_idx]
         previous_detection = previous_detections[previous_idx]
         field_changes: list[str] = []
-        if _bbox_changed(current_detection.get("bbox"), previous_detection.get("bbox")):
-            field_changes.append("bbox")
         for field in DETECTION_EVAL_FIELDS:
             if current_detection.get(field) != previous_detection.get(field):
                 field_changes.append(field)
