@@ -3,6 +3,7 @@
 import base64
 import http.client
 import json
+import os
 import subprocess
 import time
 import urllib.error
@@ -325,6 +326,14 @@ def start_llama_server(
     if not verbose:
         kwargs["stdout"] = subprocess.DEVNULL
         kwargs["stderr"] = subprocess.DEVNULL
+    # Ensure the dynamic linker can find llama.cpp shared libraries even when
+    # the binary's embedded rpath points to a stale build directory.
+    llama_lib_dir = Path(__file__).resolve().parents[2] / "llama.cpp" / "build" / "bin"
+    if llama_lib_dir.is_dir():
+        env = dict(os.environ)
+        existing = env.get("DYLD_LIBRARY_PATH", "")
+        env["DYLD_LIBRARY_PATH"] = f"{llama_lib_dir}:{existing}" if existing else str(llama_lib_dir)
+        kwargs["env"] = env
     return subprocess.Popen(cmd, **kwargs)  # type: ignore[call-overload]
 
 
