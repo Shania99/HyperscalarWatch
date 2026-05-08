@@ -18,3 +18,8 @@ SimSat/.git-local/
 SimSat/scripts/mapbox_dataset/
 SimSat/src/dashboard/db.sqlite3
 SimSat/src/dashboard/frontend/node_modules/
+app/*.zip
+app/api.py
+*.zip
+lfm2.5-VL-450M-vlm_sft-wildfire_t-all-lr2em05-w0p0-no_lora-e2s486-20260507_215806/
+cookbook/

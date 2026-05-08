@@ -22,6 +22,7 @@ from typing import TypeAlias
 from huggingface_hub import snapshot_download
 
 from datacenter_watch.annotator import annotate_raw
+from datacenter_watch.compact_schema import migrate_annotation
 from datacenter_watch.evaluator import (
     EVAL_FIELDS,
     EvalSummary,
@@ -90,8 +91,8 @@ def load_local_samples(dataset_dir: Path, split: str) -> list[SampleData]:
             if not (rgb_path.exists() and swir_path.exists() and annotation_path.exists()):
                 print(f"[{sample_id}] SKIP: missing files")
                 continue
-            ground_truth: dict[str, object] = json.loads(
-                annotation_path.read_text(encoding="utf-8")
+            ground_truth = migrate_annotation(
+                json.loads(annotation_path.read_text(encoding="utf-8"))
             )
             samples.append((
                 sample_id,
@@ -119,7 +120,7 @@ def load_hf_samples(snapshot_dir: Path, split: str) -> list[SampleData]:
         # derive tile key from filename: e.g. attica_greece_s00_t00_rgb.png → s00_t00
         tile_key  = Path(str(row["rgb_path"])).stem.removesuffix("_rgb")[len(region) + 1:]
         sample_id = f"{region}/{tile_key}"
-        ground_truth: dict[str, object] = json.loads(str(row["output"]))
+        ground_truth = migrate_annotation(json.loads(str(row["output"])))
         samples.append((
             sample_id,
             rgb_path.read_bytes(),
@@ -303,19 +304,15 @@ def main() -> None:
                     f"{f[:4]}={'✓' if fm.get(f) else '✗'}" for f in EVAL_FIELDS
                 )
                 print(f"[{result.id}] {status}", flush=True)
-                if args.dump_raw_location and result.id.startswith(f"{args.dump_raw_location}/"):
-                    rgb, swir, index, mapbox = sample_lookup[result.id]
-                    raw = annotate_raw(
-                        rgb,
-                        swir,
-                        index_bytes=index,
-                        mapbox_bytes=mapbox,
-                        model=args.model or "gemini-3-flash-preview",
-                        provider="gemini" if args.backend == "gemini" else "auto",
-                    )
+                if args.dump_raw_location is not None and result.id.startswith(f"{args.dump_raw_location}"):
                     raw_path = raw_dump_dir / result.id / "raw.txt"
                     raw_path.parent.mkdir(parents=True, exist_ok=True)
-                    raw_path.write_text(raw, encoding="utf-8")
+                    raw_data = {
+                        "prediction": result.prediction,
+                        "ground_truth": result.ground_truth,
+                        "field_matches": result.field_matches,
+                    }
+                    raw_path.write_text(json.dumps(raw_data, indent=2, default=str), encoding="utf-8")
     finally:
         if server_process is not None:
             stop_server(server_process)

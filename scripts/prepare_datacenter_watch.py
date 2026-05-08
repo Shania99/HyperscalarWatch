@@ -30,6 +30,7 @@ from datasets import load_dataset
 from huggingface_hub import snapshot_download
 
 from datacenter_watch.annotator import SYSTEM_PROMPT, build_user_text
+from datacenter_watch.compact_schema import migrate_annotation
 
 DEFAULT_DATASET = "Paulescu/datacenter_watch"
 DEFAULT_OUTPUT = Path(__file__).parent.parent / "data" / "datacenter_watch"
@@ -146,7 +147,8 @@ def main() -> None:
             swir_name = Path(str(row["swir_path"])).name
             index_name = Path(str(row["index_path"])).name if str(row.get("index_path", "")) else ""
             mapbox_name = Path(str(row["mapbox_path"])).name if str(row.get("mapbox_path", "")) else ""
-            output    = str(row["output"])
+            migrated_output = migrate_annotation(json.loads(str(row["output"])))
+            output = json.dumps(migrated_output, separators=(",", ":"))
             rows.append(
                 make_vlm_row(
                     rgb_name,

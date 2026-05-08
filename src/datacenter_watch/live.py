@@ -16,6 +16,7 @@ from datacenter_watch.simsat import (
     SIMSAT_BASE_URL,
     SimSatNoImageError,
     SWIR_BANDS,
+    _check_cloud_cover,
     build_index_composite,
 )
 
@@ -94,6 +95,7 @@ def _fetch_current_png_with_metadata(
     metadata = _load_json_header(response, "sentinel_metadata")
     if not response.content and metadata.get("image_available") is False:
         raise SimSatNoImageError(metadata)
+    _check_cloud_cover(metadata)
     return response.content, metadata
 
 
@@ -130,6 +132,7 @@ def _fetch_current_array_with_metadata(
     }
     if not isinstance(sentinel_metadata, Mapping):
         sentinel_metadata = _load_json_header(response, "sentinel_metadata")
+    _check_cloud_cover(sentinel_metadata)
     return bands_dict, dict(sentinel_metadata)
 
 

@@ -7,9 +7,10 @@ import json
 import math
 from typing import Any
 
-from datacenter_watch.evaluator import (
+from datacenter_watch.compact_schema import (
     DETECTION_EVAL_FIELDS,
-    TILE_CONTEXT_EVAL_FIELDS,
+    TILE_CONTEXT_FIELDS as TILE_CONTEXT_EVAL_FIELDS,
+    is_positive_detection,
 )
 
 BBOX_ROUND_DIGITS = 4
@@ -32,11 +33,6 @@ def _rounded_bbox(value: object) -> list[float]:
 def bbox_centroid(bbox: object) -> tuple[float, float]:
     x1, y1, x2, y2 = _rounded_bbox(bbox)
     return ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
-
-
-def is_positive_detection(detection: object) -> bool:
-    return isinstance(detection, dict) and detection.get("site_class") != "no_industrial_site_present"
-
 
 def normalize_detection(detection: object) -> dict[str, object]:
     source = detection if isinstance(detection, dict) else {}

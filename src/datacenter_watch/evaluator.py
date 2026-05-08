@@ -16,11 +16,16 @@ from typing import Protocol
 from openai import OpenAI
 
 from datacenter_watch.annotator import (
-    GEMINI_RESPONSE_SCHEMA,
     MODEL as ANTHROPIC_MODEL,
     SYSTEM_PROMPT,
     annotate,
     build_user_text,
+)
+from datacenter_watch.compact_schema import (
+    DETECTION_EVAL_FIELDS,
+    RESPONSE_SCHEMA,
+    TILE_CONTEXT_FIELDS as TILE_CONTEXT_EVAL_FIELDS,
+    is_positive_detection,
 )
 
 EVAL_FIELDS: list[str] = [
@@ -29,32 +34,7 @@ EVAL_FIELDS: list[str] = [
 ]
 
 DETECTION_IOU_THRESHOLD = 0.5
-DETECTION_EVAL_FIELDS: list[str] = [
-    "site_class",
-    "construction_stage",
-    "cooling_signature_visible",
-    "cooling_type",
-    "substation_adjacent",
-    "backup_generators_visible",
-    "roof_bright_membrane",
-    "bare_soil_present",
-    "water_feature_present",
-    "vegetation_buffer_present",
-    "dock_doors_or_truck_courts",
-]
-TILE_CONTEXT_EVAL_FIELDS: list[str] = [
-    "residential_proximity",
-    "residential_density",
-    "agricultural_land_adjacent",
-    "arid_landscape",
-    "shared_water_body_nearby",
-    "visible_water_body_type",
-    "vegetation_stress_surrounding",
-    "other_industrial_cluster",
-    "image_quality_limited",
-]
-
-_RESPONSE_SCHEMA: dict[str, object] = GEMINI_RESPONSE_SCHEMA
+_RESPONSE_SCHEMA: dict[str, object] = RESPONSE_SCHEMA
 
 
 def _bbox_iou(a: object, b: object) -> float:
@@ -91,6 +71,9 @@ def _match_detections(
 ) -> tuple[bool, list[tuple[int, int, float]]]:
     if not isinstance(prediction, list) or not isinstance(ground_truth, list):
         return False, []
+
+    prediction = [item for item in prediction if is_positive_detection(item)]
+    ground_truth = [item for item in ground_truth if is_positive_detection(item)]
 
     matched_pairs: list[tuple[int, int, float]] = []
     used_pred: set[int] = set()

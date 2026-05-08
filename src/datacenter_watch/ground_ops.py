@@ -19,22 +19,10 @@ from datacenter_watch.downlink import (
 MATCH_RADIUS_METERS = 500.0
 CONSTRUCTION_STAGE_ORDER = {
     "undisturbed": 0,
-    "land_clearing": 1,
-    "earthworks": 2,
-    "foundations": 3,
-    "structural_shell": 4,
-    "roof_complete": 5,
-    "operational": 6,
-    "expansion": 7,
+    "active_construction": 1,
+    "operational": 2,
 }
-ACTIVE_CONSTRUCTION_STAGES = {
-    "land_clearing",
-    "earthworks",
-    "foundations",
-    "structural_shell",
-    "roof_complete",
-    "expansion",
-}
+ACTIVE_CONSTRUCTION_STAGES = {"active_construction"}
 OBSERVATION_IMAGE_COLUMNS = ("rgb_path", "swir_path", "index_path", "mapbox_path")
 _ASSET_DIRS: dict[int, Path] = {}
 
@@ -469,22 +457,20 @@ def _impact_alerts(
 ) -> list[tuple[str, str, str]]:
     alerts: list[tuple[str, str, str]] = []
     stage = str(detection.get("construction_stage", ""))
-    proximity = tile_context.get("residential_proximity")
-    if stage in ACTIVE_CONSTRUCTION_STAGES and proximity in {"adjacent", "within_1km"}:
-        severity = "high" if proximity == "adjacent" else "medium"
-        alerts.append(
-            (
-                severity,
-                "impact_assessment",
-                f"Construction activity is visible with residential proximity={proximity}.",
-            )
-        )
-    if bool(detection.get("water_feature_present")) and bool(tile_context.get("shared_water_body_nearby")):
+    if stage in ACTIVE_CONSTRUCTION_STAGES and not bool(tile_context.get("image_quality_limited")):
         alerts.append(
             (
                 "medium",
                 "impact_assessment",
-                "Facility activity overlaps with nearby shared water infrastructure.",
+                "Construction activity is visible and the tile quality is sufficient for monitoring.",
+            )
+        )
+    if str(detection.get("site_class", "")) == "data_center" and bool(detection.get("roof_bright_membrane")):
+        alerts.append(
+            (
+                "medium",
+                "impact_assessment",
+                "Bright-roof campus morphology is visible at a likely data-center site.",
             )
         )
     return alerts
@@ -503,7 +489,7 @@ def _rapid_construction_alert(
     if previous_rank is None or current_rank is None or current_rank <= previous_rank:
         return None
     days = (_parse_timestamp(current_observed_at) - _parse_timestamp(previous_observed_at)).days
-    if current_rank - previous_rank >= 2 and days <= 60:
+    if current_stage == "operational" and days <= 60:
         return (
             "high",
             "rapid_construction",

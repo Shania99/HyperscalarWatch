@@ -231,8 +231,17 @@ def _run_loop(
                 transmitted += 1
             else:
                 suppressed += 1
-        except SimSatNoImageError:
-            print("[loop] SimSat reported no image for this step, skipping")
+        except SimSatNoImageError as exc:
+            try:
+                state = get_current_state()
+                pos = f"lon={state['lon']:.2f} lat={state['lat']:.2f} t={state['timestamp']}"
+            except Exception:
+                pos = "position unavailable"
+            cloud = exc.metadata.get("cloud_cover")
+            if cloud is not None:
+                print(f"[loop] cloud cover {cloud}% exceeds limit, skipping  ({pos})")
+            else:
+                print(f"[loop] no image for this step, skipping  ({pos})")
         except KeyboardInterrupt:
             raise
         except Exception as exc:

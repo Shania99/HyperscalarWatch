@@ -15,6 +15,7 @@ from typing import Any
 
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 from PIL import Image, ImageDraw
 from datacenter_watch.live import get_current_state
 from datacenter_watch.locations import LOCATIONS
@@ -23,48 +24,23 @@ DB_PATH = Path(__file__).parent.parent / "ground.db"
 
 STAGE_COLORS = {
     "operational": "#00e87a",
-    "expansion": "#ffaa00",
-    "roof_complete": "#ffd166",
-    "structural_shell": "#ff7a59",
-    "foundations": "#ff5577",
-    "earthworks": "#d14d72",
-    "land_clearing": "#a855f7",
+    "active_construction": "#ff9f1c",
     "undisturbed": "#64748b",
 }
 SEVERITY_COLORS = {"high": "#ff5577", "medium": "#ffaa00", "low": "#00e87a"}
 STAGE_RANK = {
     "undisturbed": 0,
-    "land_clearing": 1,
-    "earthworks": 2,
-    "foundations": 3,
-    "structural_shell": 4,
-    "roof_complete": 5,
-    "operational": 6,
-    "expansion": 7,
+    "active_construction": 1,
+    "operational": 2,
 }
 DETECTION_FIELDS = [
     "site_class",
     "construction_stage",
-    "confidence",
-    "cooling_signature_visible",
-    "cooling_type",
-    "substation_adjacent",
-    "backup_generators_visible",
     "roof_bright_membrane",
     "bare_soil_present",
-    "water_feature_present",
-    "vegetation_buffer_present",
-    "dock_doors_or_truck_courts",
+    "reasoning",
 ]
 TILE_CONTEXT_FIELDS = [
-    "residential_proximity",
-    "residential_density",
-    "agricultural_land_adjacent",
-    "arid_landscape",
-    "shared_water_body_nearby",
-    "visible_water_body_type",
-    "vegetation_stress_surrounding",
-    "other_industrial_cluster",
     "image_quality_limited",
 ]
 
@@ -673,6 +649,9 @@ def main() -> None:
         if st.button("Refresh now"):
             st.rerun()
 
+    if auto_refresh:
+        st_autorefresh(interval=int(refresh_interval) * 1000, key="auto_refresh")
+
     sites = _fetch_sites(conn, cutoff)
     alerts = _fetch_alerts(conn, cutoff)
     sites = _decorate_sites(sites, alerts)
@@ -907,9 +886,6 @@ def main() -> None:
         else:
             st.caption("No enrichment queue items for this site yet.")
 
-    if auto_refresh:
-        time.sleep(int(refresh_interval))
-        st.rerun()
 
 
 if __name__ == "__main__":

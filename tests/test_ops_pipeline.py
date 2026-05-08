@@ -11,10 +11,10 @@ from datacenter_watch.satellite_ops import clear_cache, observe_tile
 def _payload(
     *,
     bbox: list[float] | None = None,
-    site_class: str = "under_construction",
-    construction_stage: str = "land_clearing",
+    site_class: str = "industrial_site",
+    construction_stage: str = "active_construction",
     reasoning: str = "ignored",
-    residential_proximity: str = "adjacent",
+    image_quality_limited: bool = False,
 ) -> dict[str, object]:
     return {
         "detections": [
@@ -22,29 +22,13 @@ def _payload(
                 "bbox": bbox or [0.2, 0.2, 0.4, 0.4],
                 "site_class": site_class,
                 "construction_stage": construction_stage,
-                "confidence": "high",
-                "cooling_signature_visible": False,
-                "cooling_type": "not_visible",
-                "substation_adjacent": False,
-                "backup_generators_visible": False,
                 "roof_bright_membrane": False,
                 "bare_soil_present": True,
-                "water_feature_present": False,
-                "vegetation_buffer_present": False,
-                "dock_doors_or_truck_courts": False,
                 "reasoning": reasoning,
             }
         ],
         "tile_context": {
-            "residential_proximity": residential_proximity,
-            "residential_density": "suburban",
-            "agricultural_land_adjacent": False,
-            "arid_landscape": False,
-            "shared_water_body_nearby": False,
-            "visible_water_body_type": "none",
-            "vegetation_stress_surrounding": False,
-            "other_industrial_cluster": False,
-            "image_quality_limited": False,
+            "image_quality_limited": image_quality_limited,
         },
     }
 
@@ -81,7 +65,7 @@ class OpsPipelineTest(unittest.TestCase):
             tile_lat=40.7,
             size_km=5.0,
             observed_at="2026-05-01T00:00:00+00:00",
-            payload=_payload(construction_stage="land_clearing"),
+            payload=_payload(construction_stage="active_construction"),
         )
         second = observe_tile(
             tile_id="dc_1/s00",
@@ -89,7 +73,7 @@ class OpsPipelineTest(unittest.TestCase):
             tile_lat=40.7,
             size_km=5.0,
             observed_at="2026-05-10T00:00:00+00:00",
-            payload=_payload(construction_stage="structural_shell"),
+            payload=_payload(construction_stage="operational"),
         )
         self.assertTrue(second["transmitted"])
         packet = second["packet"]
@@ -106,7 +90,7 @@ class OpsPipelineTest(unittest.TestCase):
                 tile_lat=40.7,
                 size_km=5.0,
                 observed_at="2026-05-01T00:00:00+00:00",
-                payload=_payload(construction_stage="land_clearing"),
+                payload=_payload(construction_stage="active_construction"),
             )
             second = observe_tile(
                 tile_id="dc_1/s00",
@@ -114,7 +98,7 @@ class OpsPipelineTest(unittest.TestCase):
                 tile_lat=40.7,
                 size_km=5.0,
                 observed_at="2026-05-20T00:00:00+00:00",
-                payload=_payload(construction_stage="structural_shell"),
+                payload=_payload(construction_stage="operational"),
             )
             self.assertTrue(first["transmitted"])
             self.assertTrue(second["transmitted"])

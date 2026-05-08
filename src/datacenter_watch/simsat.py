@@ -14,12 +14,22 @@ SWIR_BANDS = ("swir22", "nir08", "red")
 INDEX_BANDS = ("red", "green", "nir08", "swir16")
 
 
+MAX_CLOUD_COVER_PCT = 30.0
+
+
 class SimSatNoImageError(ValueError):
     """Raised when SimSat reports no Sentinel image for the requested query."""
 
     def __init__(self, metadata: Mapping[str, object] | None = None):
         self.metadata = dict(metadata or {})
         super().__init__("SimSat reported no Sentinel image for the requested query")
+
+
+def _check_cloud_cover(metadata: Mapping[str, object]) -> None:
+    """Raise *SimSatNoImageError* if cloud cover exceeds the threshold."""
+    cloud_cover = metadata.get("cloud_cover")
+    if cloud_cover is not None and float(cloud_cover) > MAX_CLOUD_COVER_PCT:
+        raise SimSatNoImageError(metadata)
 
 
 def _sentinel_params(
@@ -71,7 +81,9 @@ def fetch_image_with_metadata(
         timeout=60,
     )
     response.raise_for_status()
-    return response.content, _load_json_header(response, "sentinel_metadata")
+    metadata = _load_json_header(response, "sentinel_metadata")
+    _check_cloud_cover(metadata)
+    return response.content, metadata
 
 
 def fetch_image_array(
@@ -159,6 +171,7 @@ def fetch_image_array_with_metadata(
     }
     if not isinstance(sentinel_metadata, Mapping):
         sentinel_metadata = {}
+    _check_cloud_cover(sentinel_metadata)
     return bands_dict, dict(sentinel_metadata)
 
 

@@ -17,10 +17,13 @@ dependencies = [
     "peft>=0.14",
     "gguf>=0.10",
     "streamlit>=1.35",
+    "streamlit-autorefresh>=1.0.1",
     "pydeck>=0.9",
     "torchvision>=0.26.0",
     "modal>=1.4.2",
     "plotly>=6.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
 ]
 
 [build-system]
