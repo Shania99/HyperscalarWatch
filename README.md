@@ -17,7 +17,7 @@ Data centers and hyperscale AI are necessary infrastructure. This is how we buil
 
 ## What It Does
 
-HyperscalerrWatch has four moving parts:
+HyperscalerWatch has four moving parts:
 
 1. `SimSat/` simulates the satellite and serves imagery on `http://localhost:9005`.
 2. `scripts/satellite.py` fetches tiles, runs the vision model, and writes downlink packets to `downlink_packets.jsonl`.
