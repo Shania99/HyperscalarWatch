@@ -1,4 +1,4 @@
-# HyperScalerCenterWatch
+# HyperscalerWatch
 
 Satellite monitoring for data-center and industrial-site detection using Sentinel-2 composites, SimSat, Gemini/LFM inference, a packet downlink pipeline, and a live React dashboard.
 
