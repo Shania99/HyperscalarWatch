@@ -1,4 +1,4 @@
-# DataCenterWatch
+# HyperScalerCenterWatch
 
 Satellite monitoring for data-center and industrial-site detection using Sentinel-2 composites, SimSat, Gemini/LFM inference, a packet downlink pipeline, and a live React dashboard.
 
@@ -6,13 +6,13 @@ Satellite monitoring for data-center and industrial-site detection using Sentine
 
 The U.S. is building data centers faster than it can keep track of them. Pew counts 3,000+ operational and 1,500+ in development as of Feb 2026, with construction starts in early 2026 running ~26× year-over-year. 67% of planned facilities are heading to rural counties and 39% to counties that have never hosted one before. These projects routinely arrive under shell-LLC codenames ("Project Tango," "Project Flex," Meta's "Redale LLC"); the University of Michigan found in 2025 that operators "often have binding non-disclosure agreements with local government" and that the industry lobbies against basic disclosure on water and power. Residents typically learn what's been built next to them only after the noise, traffic, or air-quality complaints start. For instance, xAI's Colossus-1 ran 35 unpermitted gas turbines in South Memphis before aerial flyovers exposed it.
 
-HyperscalarWatch closes that information asymmetry. Our fine-tuned LFM2-VL-450M runs on-orbit over Sentinel-2 and Mapbox images and emits alerts on each pass which are analyzed further on the ground: what's being built, its construction stage, how it impacts water and vegetation around. This can then be used by governments, zoning boards or researchers to act on.
+HyperscalerWatch closes that information asymmetry. Our fine-tuned LFM2-VL-450M runs on-orbit over Sentinel-2 and Mapbox images and emits alerts on each pass which are analyzed further on the ground: what's being built, its construction stage, how it impacts water and vegetation around. This can then be used by governments, zoning boards or researchers to act on.
 
 The unlock is threefold: every new build becomes detectable the moment ground is broken (making rogue and codenamed campuses hard to hide), the cumulative network footprint becomes legible (Pew finds 90% of data centers cluster within five miles of another, and effects on grid, water, and air don't sum linearly), and the next hundred gigawatts of capacity can be planned against an honest track record of past impacts. Data centers and hyperscale AI are necessary infrastructure. This is how we build them responsibly.
 
 ## What It Does
 
-DataCenterWatch has four moving parts:
+HyperscalerrWatch has four moving parts:
 
 1. `SimSat/` simulates the satellite and serves imagery on `http://localhost:9005`.
 2. `scripts/satellite.py` fetches tiles, runs the vision model, and writes downlink packets to `downlink_packets.jsonl`.
