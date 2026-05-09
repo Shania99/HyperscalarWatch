@@ -79,7 +79,9 @@ def observe_tile(
 ) -> dict[str, object]:
     canonical = canonical_payload(payload)
     current_hash = payload_hash(canonical)
-    cached = _store.get(tile_id)
+    # All subtiles of the same location (e.g. s00, s01, s02) share one cache slot
+    cache_key = tile_id.split("/")[0] if "/" in tile_id else tile_id
+    cached = _store.get(cache_key)
     has_detections = bool(canonical["detections"])
 
     if not has_detections:
@@ -87,7 +89,7 @@ def observe_tile(
             return {"transmitted": False, "reason": "empty"}
         previous_payload, _previous_hash = cached
         diff = field_level_diff(canonical, previous_payload)
-        _store.pop(tile_id, None)
+        _store.pop(cache_key, None)
         packet = _build_packet(
             tile_id=tile_id,
             tile_lon=tile_lon,
@@ -103,7 +105,7 @@ def observe_tile(
         return {"transmitted": True, "packet": packet}
 
     if cached is None:
-        _store[tile_id] = (canonical, current_hash[:16])
+        _store[cache_key] = (canonical, current_hash[:16])
         packet = _build_packet(
             tile_id=tile_id,
             tile_lon=tile_lon,
@@ -122,7 +124,7 @@ def observe_tile(
         return {"transmitted": False, "reason": "hash_match"}
 
     diff = field_level_diff(canonical, previous_payload)
-    _store[tile_id] = (canonical, current_hash[:16])
+    _store[cache_key] = (canonical, current_hash[:16])
     if not has_meaningful_change(diff):
         return {"transmitted": False, "reason": "no_meaningful_change"}
 

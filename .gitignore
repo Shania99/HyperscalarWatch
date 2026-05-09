@@ -24,6 +24,7 @@ app/*.zip
 app/api.py
 *.zip
 *.gif
+assets/spatial_temporal_tiles.gif
 leap-finetune/
 lfm2.5-VL-450M-vlm_sft-wildfire_t-all-lr2em05-w0p0-no_lora-e2s486-20260507_215806/
 lfm2.5-VL-450M-vlm_sft-wildfire_t-all-lr2em05-w0p0-no_lora-e1s250-20260508_182031/
